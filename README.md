@@ -71,9 +71,9 @@ DropIt uses advanced AI to automatically handle customer service calls, negotiat
 
 Create a `.env` file in the root directory:
 ```env
-VAPI_API_KEY=fd153d6a-4097-4b26-acbb-df0bba92d01a
-VAPI_PHONE_NUMBER=+15719329354
-PORT=3001
+VAPI_API_KEY=
+VAPI_PHONE_NUMBER=
+PORT=
 ```
 
 ## 🔄 How It Works
