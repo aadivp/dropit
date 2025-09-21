@@ -1,0 +1,203 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 98%; /* Very light sea foam */
+  --foreground: 0 0% 15%; /* Near black */
+  --card: 0 0% 100%; /* Pure white */
+  --card-foreground: 0 0% 15%; /* Near black */
+  --popover: 0 0% 100%; /* Pure white */
+  --popover-foreground: 0 0% 15%; /* Near black */
+  /* Updated primary colors to sea foam green */
+  --primary: 180 65% 45%; /* Sea foam green */
+  --primary-foreground: 0 0% 100%; /* White */
+  --secondary: 180 45% 55%; /* Deeper sea foam */
+  --secondary-foreground: 0 0% 100%; /* White */
+  --muted: 180 15% 96%; /* Light sea foam */
+  --muted-foreground: 0 0% 45%; /* Dark gray */
+  --accent: 180 45% 55%; /* Deeper sea foam */
+  --accent-foreground: 0 0% 100%; /* White */
+  --destructive: 0 84% 60%; /* Red */
+  --destructive-foreground: 0 0% 100%; /* White */
+  --border: 180 15% 90%; /* Light sea foam border */
+  --input: 0 0% 100%; /* White */
+  --ring: 180 65% 45%; /* Sea foam ring */
+  --chart-1: 180 65% 45%; /* Sea foam */
+  --chart-2: 180 45% 55%; /* Deeper sea foam */
+  --chart-3: 180 15% 75%; /* Light sea foam */
+  --chart-4: 180 10% 85%; /* Very light sea foam */
+  --chart-5: 180 5% 95%; /* Barely tinted sea foam */
+  --radius: 0.5rem;
+}
+
+.dark {
+  /* Updated dark mode colors to maintain sea foam theme */
+  --background: 180 5% 12%; /* Dark sea foam */
+  --foreground: 180 5% 95%; /* Light sea foam text */
+  --card: 180 5% 15%; /* Dark sea foam card */
+  --card-foreground: 180 5% 95%; /* Light sea foam text */
+  --popover: 180 5% 15%; /* Dark sea foam */
+  --popover-foreground: 180 5% 95%; /* Light sea foam text */
+  --primary: 180 65% 45%; /* Sea foam green */
+  --primary-foreground: 180 5% 12%; /* Dark sea foam */
+  --secondary: 180 45% 35%; /* Deeper sea foam */
+  --secondary-foreground: 180 5% 95%; /* Light sea foam text */
+  --muted: 180 5% 25%; /* Muted dark sea foam */
+  --muted-foreground: 180 5% 70%; /* Medium sea foam */
+  --accent: 180 45% 35%; /* Deeper sea foam */
+  --accent-foreground: 180 5% 95%; /* Light sea foam text */
+  --destructive: 0 84% 60%; /* Red */
+  --destructive-foreground: 180 5% 95%; /* Light sea foam text */
+  --border: 180 5% 25%; /* Dark sea foam border */
+  --input: 180 5% 25%; /* Dark sea foam input */
+  --ring: 180 65% 45%; /* Sea foam ring */
+  --chart-1: 180 65% 45%; /* Sea foam */
+  --chart-2: 180 45% 35%; /* Deeper sea foam */
+  --chart-3: 180 25% 55%; /* Light sea foam */
+  --chart-4: 180 15% 45%; /* Medium sea foam */
+  --chart-5: 180 10% 35%; /* Dark sea foam */
+}
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /* Updated gradient utilities to use sea foam colors */
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(180 65% 45%), hsl(180 45% 35%));
+  }
+
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(180 5% 12%) 0%, hsl(180 5% 25%) 100%);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(180 65% 45%), hsl(180 45% 35%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Added glassmorphic utilities */
+  .glass {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .glass-dark {
+    background: rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Added scroll animation utilities */
+  .animate-fade-in-up {
+    animation: fadeInUp 0.8s ease-out forwards;
+  }
+
+  .animate-fade-in-left {
+    animation: fadeInLeft 0.8s ease-out forwards;
+  }
+
+  .animate-fade-in-right {
+    animation: fadeInRight 0.8s ease-out forwards;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Added hover bend effect for dropdown */
+  .hover-bend {
+    transition: transform 0.3s ease;
+  }
+
+  .hover-bend:hover {
+    transform: perspective(1000px) rotateX(5deg) rotateY(-5deg);
+  }
+
+  /* Added letter-by-letter animation for title */
+  .letter-animation {
+    display: inline-block;
+    opacity: 0;
+    animation: letterDrop 0.6s ease-out forwards;
+  }
+
+  /* Added animate-letter-drop class for scroll-triggered animations */
+  .animate-letter-drop {
+    animation: letterDrop 0.6s ease-out forwards;
+  }
+}
+
+/* Added keyframe animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* Added letter drop animation keyframes */
+@keyframes letterDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-50px) rotateX(90deg);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translateY(10px) rotateX(45deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0deg);
+  }
+}
