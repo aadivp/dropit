@@ -39,11 +39,12 @@ DropIt uses advanced AI to automatically handle customer service calls, negotiat
 1. **Clone the repository:**
    ```bash
    git clone <your-repo-url>
-   cd dropit/my-app
+   cd dropit
    ```
 
 2. **Install dependencies:**
    ```bash
+   cd my-app
    npm install --legacy-peer-deps
    ```
 
