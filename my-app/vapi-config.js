@@ -341,25 +341,37 @@ REMEMBER: Your goal is to get the best possible outcome for the customer.`;
   // Generate a summary of the call
   generateCallSummary(callData, transcript) {
     if (callData.status === 'ended' && transcript) {
+      const confirmationCode = this.extractConfirmationCode(transcript);
+      const refundAmount = this.extractRefundAmount(transcript);
+      
       return {
         outcome: "Call completed successfully",
         duration: `${Math.round(callData.duration / 60)} minutes`,
         keyPoints: this.extractKeyPoints(transcript),
-        result: this.determineResult(transcript)
+        result: this.determineResult(transcript),
+        confirmationCode: confirmationCode,
+        refundAmount: refundAmount,
+        transcript: transcript
       };
     } else if (callData.status === 'failed') {
       return {
         outcome: "Call failed",
         duration: "0 minutes",
         keyPoints: ["Call could not be completed"],
-        result: "No resolution achieved"
+        result: "No resolution achieved",
+        confirmationCode: null,
+        refundAmount: null,
+        transcript: transcript || "No transcript available"
       };
     } else {
       return {
         outcome: "Call in progress",
         duration: "Ongoing",
         keyPoints: ["Call is still active"],
-        result: "Pending"
+        result: "Pending",
+        confirmationCode: null,
+        refundAmount: null,
+        transcript: transcript || "Call in progress"
       };
     }
   }
@@ -398,6 +410,58 @@ REMEMBER: Your goal is to get the best possible outcome for the customer.`;
     } else {
       return 'Resolution pending';
     }
+  }
+
+  // Extract confirmation code from transcript
+  extractConfirmationCode(transcript) {
+    if (!transcript) return null;
+    
+    // Look for various confirmation code patterns
+    const patterns = [
+      /confirmation code[:\s]+([A-Z0-9-]+)/i,
+      /reference number[:\s]+([A-Z0-9-]+)/i,
+      /case number[:\s]+([A-Z0-9-]+)/i,
+      /ticket number[:\s]+([A-Z0-9-]+)/i,
+      /confirmation[:\s]+([A-Z0-9-]+)/i,
+      /reference[:\s]+([A-Z0-9-]+)/i,
+      /code[:\s]+([A-Z0-9-]+)/i,
+      /number[:\s]+([A-Z0-9-]+)/i,
+      // Look for patterns like "ABC123", "123-456", "REF789", etc.
+      /\b([A-Z]{2,4}[0-9]{3,6})\b/g,
+      /\b([0-9]{3,6}-[A-Z0-9]{3,6})\b/g,
+      /\b([A-Z0-9]{6,12})\b/g
+    ];
+    
+    for (const pattern of patterns) {
+      const matches = transcript.match(pattern);
+      if (matches && matches[1]) {
+        return matches[1].trim();
+      }
+    }
+    
+    return null;
+  }
+
+  // Extract refund amount from transcript
+  extractRefundAmount(transcript) {
+    if (!transcript) return null;
+    
+    // Look for dollar amounts
+    const patterns = [
+      /\$(\d+(?:\.\d{2})?)/g,
+      /(\d+(?:\.\d{2})?)\s*dollars?/gi,
+      /refund[:\s]+(\$?\d+(?:\.\d{2})?)/gi,
+      /credit[:\s]+(\$?\d+(?:\.\d{2})?)/gi
+    ];
+    
+    for (const pattern of patterns) {
+      const matches = transcript.match(pattern);
+      if (matches && matches[1]) {
+        return matches[1].trim();
+      }
+    }
+    
+    return null;
   }
 
   // End a call

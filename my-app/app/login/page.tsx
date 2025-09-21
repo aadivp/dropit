@@ -2,12 +2,14 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { useAuth } from "@/contexts/AuthContext"
 import Link from "next/link"
 
 export default function LoginPage() {
@@ -17,38 +19,93 @@ export default function LoginPage() {
     password: "",
     confirmPassword: "",
   })
+  const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  const { login, signup, user } = useAuth()
+  const router = useRouter()
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      router.push('/')
+    }
+  }, [user, router])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData((prev) => ({
       ...prev,
       [e.target.name]: e.target.value,
     }))
+    // Clear error when user starts typing
+    if (error) setError("")
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Handle form submission
-    console.log("Form submitted:", formData)
+    setError("")
+    setIsLoading(true)
+
+    try {
+      if (isLogin) {
+        // Login
+        const result = await login(formData.email, formData.password)
+        if (result.success) {
+          router.push('/')
+        } else {
+          setError(result.error || 'Login failed')
+        }
+      } else {
+        // Signup
+        if (formData.password !== formData.confirmPassword) {
+          setError("Passwords don't match")
+          setIsLoading(false)
+          return
+        }
+
+        if (formData.password.length < 6) {
+          setError("Password must be at least 6 characters")
+          setIsLoading(false)
+          return
+        }
+
+        const result = await signup(formData.email, formData.password)
+        if (result.success) {
+          router.push('/')
+        } else {
+          setError(result.error || 'Signup failed')
+        }
+      }
+    } catch (error) {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleGoogleSignIn = () => {
     // Handle Google sign in
-    console.log("Google sign in clicked")
+    setError("Google sign-in is not implemented yet")
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center gradient-hero p-4">
-      <Card className="w-full max-w-md shadow-2xl border-0">
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+      <Card className="w-full max-w-md shadow-2xl border-0 bg-slate-800/50 backdrop-blur-xl">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold text-gradient">Vapi Negotiation System</CardTitle>
-          <CardDescription className="text-muted-foreground">
+          <CardTitle className="text-2xl font-bold text-white">DropIt</CardTitle>
+          <CardDescription className="text-white/70">
             {isLogin ? "Sign in to your account" : "Create your account"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {error && (
+            <div className="p-3 text-sm text-red-400 bg-red-900/20 border border-red-800/50 rounded-md">
+              {error}
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-white/90">Email</Label>
               <Input
                 id="email"
                 name="email"
@@ -57,11 +114,11 @@ export default function LoginPage() {
                 value={formData.email}
                 onChange={handleInputChange}
                 required
-                className="h-11"
+                className="h-11 bg-slate-700/50 border-slate-600 text-white placeholder:text-white/50 focus:border-primary"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-white/90">Password</Label>
               <Input
                 id="password"
                 name="password"
@@ -70,12 +127,12 @@ export default function LoginPage() {
                 value={formData.password}
                 onChange={handleInputChange}
                 required
-                className="h-11"
+                className="h-11 bg-slate-700/50 border-slate-600 text-white placeholder:text-white/50 focus:border-primary"
               />
             </div>
             {!isLogin && (
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Label htmlFor="confirmPassword" className="text-white/90">Confirm Password</Label>
                 <Input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -84,25 +141,32 @@ export default function LoginPage() {
                   value={formData.confirmPassword}
                   onChange={handleInputChange}
                   required
-                  className="h-11"
+                  className="h-11 bg-slate-700/50 border-slate-600 text-white placeholder:text-white/50 focus:border-primary"
                 />
               </div>
             )}
-            <Button type="submit" className="w-full h-11 gradient-primary text-white font-semibold">
-              {isLogin ? "Sign In" : "Create Account"}
+            <Button type="submit" disabled={isLoading} className="w-full h-11 gradient-primary text-white font-semibold">
+              {isLoading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>{isLogin ? "Signing In..." : "Creating Account..."}</span>
+                </div>
+              ) : (
+                isLogin ? "Sign In" : "Create Account"
+              )}
             </Button>
           </form>
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <Separator className="w-full" />
+              <Separator className="w-full bg-slate-600" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+              <span className="bg-slate-800 px-2 text-white/70">Or continue with</span>
             </div>
           </div>
 
-          <Button variant="outline" className="w-full h-11 bg-transparent" onClick={handleGoogleSignIn}>
+          <Button variant="outline" className="w-full h-11 bg-slate-700/50 border-slate-600 text-white hover:bg-slate-600/50" onClick={handleGoogleSignIn}>
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -129,16 +193,6 @@ export default function LoginPage() {
               {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
             </button>
           </div>
-
-          {isLogin && (
-            <div className="mt-6 p-4 bg-muted rounded-lg">
-              <h4 className="text-sm font-semibold mb-2">Demo Credentials</h4>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>Email: demo@vapi.com</p>
-                <p>Password: demo123</p>
-              </div>
-            </div>
-          )}
 
           <div className="text-center">
             <Link href="/" className="text-sm text-primary hover:underline">

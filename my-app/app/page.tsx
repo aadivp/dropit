@@ -1,9 +1,11 @@
 "use client"
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { useAuth } from "@/contexts/AuthContext"
 import {
   ChevronDown,
   Calendar,
@@ -16,9 +18,15 @@ import {
   Clock,
   User,
   X,
+  LogOut,
+  Phone,
+  CheckCircle,
 } from "lucide-react"
 
 export default function Dashboard() {
+  const { user, logout, isLoading } = useAuth()
+  const router = useRouter()
+
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [showForm, setShowForm] = useState(false)
@@ -48,12 +56,21 @@ export default function Dashboard() {
   const [negotiationStatus, setNegotiationStatus] = useState({
     id: null as string | null,
     status: 'idle',
-    result: null as any
+    result: null as any,
+    callStartTime: null as Date | null,
+    duration: 0,
+    currentPhase: 'initializing' as 'initializing' | 'dialing' | 'connected' | 'negotiating' | 'completing',
+    error: null as string | null
   })
   const [signInData, setSignInData] = useState({
     username: "",
     password: "",
   })
+
+  const handleLogout = () => {
+    logout()
+    router.push('/login')
+  }
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -95,7 +112,7 @@ export default function Dashboard() {
     return () => observer.disconnect()
   }, [shouldAnimateTitle])
 
-  // Poll for negotiation status
+  // Poll for negotiation status with more frequent updates
   useEffect(() => {
     if (negotiationStatus.id && negotiationStatus.status === 'in_progress') {
       const interval = setInterval(async () => {
@@ -103,22 +120,89 @@ export default function Dashboard() {
           const response = await fetch(`http://localhost:3001/status/${negotiationStatus.id}`)
           const data = await response.json()
           
+          setNegotiationStatus(prev => ({
+            ...prev,
+            ...data,
+            duration: prev.callStartTime ? Math.floor((Date.now() - prev.callStartTime.getTime()) / 1000) : 0,
+            currentPhase: data.phase || determineCallPhase(data.status, prev.duration)
+          }))
+          
           if (data.status === 'completed') {
-            setNegotiationStatus({
-              id: data.id,
-              status: 'completed',
-              result: data.result
-            })
-            setShowCallProgress(false)
+            setTimeout(() => setShowCallProgress(false), 3000) // Show result for 3 seconds
           }
         } catch (error) {
           console.error('Error checking status:', error)
         }
-      }, 2000)
+      }, 1000) // Poll every second for more responsive updates
 
       return () => clearInterval(interval)
     }
   }, [negotiationStatus.id, negotiationStatus.status])
+
+  // Timer for call duration
+  useEffect(() => {
+    if (negotiationStatus.status === 'in_progress' && negotiationStatus.callStartTime) {
+      const timer = setInterval(() => {
+        setNegotiationStatus(prev => ({
+          ...prev,
+          duration: Math.floor((Date.now() - prev.callStartTime!.getTime()) / 1000)
+        }))
+      }, 1000)
+
+      return () => clearInterval(timer)
+    }
+  }, [negotiationStatus.status, negotiationStatus.callStartTime])
+
+  const determineCallPhase = (status: string, duration: number) => {
+    if (status === 'starting') return 'initializing'
+    if (status === 'in_progress') {
+      if (duration < 15) return 'dialing'
+      if (duration < 45) return 'connected'
+      if (duration < 120) return 'negotiating'
+      return 'completing'
+    }
+    return 'completing'
+  }
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const getPhaseMessage = (phase: string) => {
+    switch (phase) {
+      case 'initializing': return 'Setting up your call...'
+      case 'dialing': return 'Connecting to customer service...'
+      case 'connected': return 'Speaking with representative...'
+      case 'negotiating': return 'Negotiating on your behalf...'
+      case 'completing': return 'Finalizing details...'
+      default: return 'Processing your request...'
+    }
+  }
+
+  // Authentication logic - redirect if not authenticated
+  useEffect(() => {
+    console.log('Auth check:', { isLoading, user })
+    if (!isLoading && !user) {
+      console.log('Redirecting to login...')
+      router.push('/login')
+    }
+  }, [user, isLoading, router])
+
+  // Show loading while checking authentication
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    )
+  }
+
+  // Don't render if not authenticated
+  if (!user) {
+    return null
+  }
 
   const handleNegotiationSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -205,11 +289,24 @@ export default function Dashboard() {
         setNegotiationStatus({
           id: data.negotiationId,
           status: 'in_progress',
-          result: null
+          result: null,
+          callStartTime: new Date(),
+          duration: 0,
+          currentPhase: 'initializing',
+          error: null
         })
         setShowCallProgress(true)
       } else {
-        alert(`Failed to start negotiation: ${data.error || 'Unknown error'}`)
+        setNegotiationStatus({
+          id: null,
+          status: 'failed',
+          result: null,
+          callStartTime: null,
+          duration: 0,
+          currentPhase: 'initializing',
+          error: data.error || 'Failed to start negotiation'
+        })
+        setShowCallProgress(true)
       }
     } catch (error) {
       console.error('Error starting negotiation:', error)
@@ -506,52 +603,276 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
         <div className="fixed top-0 left-0 right-0 z-40 backdrop-blur-xl bg-blue-900/20 border-b border-white/10">
-          <div className="container mx-auto px-4 py-2 flex items-center justify-end">
-            <Button
-              onClick={() => setShowSignIn(true)}
-              variant="ghost"
-              className="text-white/70 hover:text-white hover:bg-white/10"
-            >
-              <User className="mr-2 h-4 w-4" />
-              Sign In
-            </Button>
+          <div className="container mx-auto px-4 py-2 flex items-center justify-end space-x-4">
+            {user ? (
+              <>
+                <div className="flex items-center text-white/70 text-sm">
+                  <User className="mr-2 h-4 w-4" />
+                  {user.email}
+                </div>
+                <Button
+                  onClick={handleLogout}
+                  variant="ghost"
+                  className="text-white/70 hover:text-white hover:bg-white/10"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() => router.push('/login')}
+                variant="ghost"
+                className="text-white/70 hover:text-white hover:bg-white/10"
+              >
+                <User className="mr-2 h-4 w-4" />
+                Sign In
+              </Button>
+            )}
           </div>
         </div>
 
-        <div className="text-center">
-          {negotiationStatus.status === 'in_progress' ? (
+        <div className="text-center max-w-2xl mx-auto px-4">
+          {negotiationStatus.status === 'failed' ? (
             <>
-              <h1 className="text-8xl font-bold text-white mb-8">Call in progress...</h1>
-              <div className="flex justify-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary"></div>
+              <h1 className="text-6xl font-bold text-red-400 mb-8">❌ Call Failed</h1>
+              <div className="glass rounded-2xl p-8 max-w-lg mx-auto mb-8">
+                <div className="flex items-center justify-center mb-6">
+                  <X className="h-12 w-12 text-red-500 mr-3" />
+                  <span className="text-2xl font-semibold text-white">Unable to Start Call</span>
+                </div>
+                
+                <div className="space-y-4 text-left">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white mb-2">Error:</h3>
+                    <p className="text-white/90 bg-red-500/20 rounded-lg p-3">
+                      {negotiationStatus.error || 'Failed to connect to Vapi service'}
+                    </p>
+                  </div>
+                  
+                  <div className="text-white/70 text-center">
+                    <p>Please check your configuration and try again.</p>
+                  </div>
+                </div>
               </div>
-              <p className="text-white/70 mt-4">Our AI is negotiating on your behalf</p>
-            </>
-          ) : negotiationStatus.status === 'completed' && negotiationStatus.result ? (
-            <>
-              <h1 className="text-6xl font-bold text-white mb-8">Negotiation Complete!</h1>
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 max-w-md mx-auto">
-                <h2 className="text-2xl font-semibold text-white mb-4">Result:</h2>
-                <p className="text-white/90 mb-4">{negotiationStatus.result.refund}</p>
-                <p className="text-white/70">Confirmation Code: <span className="font-mono text-green-400">{negotiationStatus.result.code}</span></p>
-              </div>
+              
               <Button 
                 onClick={() => {
                   setShowCallProgress(false)
-                  setNegotiationStatus({id: null, status: 'idle', result: null})
+                  setNegotiationStatus({
+                    id: null, 
+                    status: 'idle', 
+                    result: null, 
+                    callStartTime: null, 
+                    duration: 0, 
+                    currentPhase: 'initializing',
+                    error: null
+                  })
                   setNegotiationData({userMessage: '', orderNumber: '', screenshot: null})
                 }}
-                className="mt-8 bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-xl"
+                className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-xl text-lg"
+              >
+                Try Again
+              </Button>
+            </>
+          ) : negotiationStatus.status === 'in_progress' || negotiationStatus.status === 'starting' ? (
+            <>
+              <div className="mb-8">
+                <h1 className="text-6xl font-bold text-white mb-4">AI Call in Progress</h1>
+                <div className="glass rounded-2xl p-6 mb-6">
+                  <div className="flex items-center justify-center mb-4">
+                    <Phone className="h-8 w-8 text-primary mr-3 animate-pulse" />
+                    <span className="text-2xl font-semibold text-white">{formatDuration(negotiationStatus.duration)}</span>
+                  </div>
+                  <p className="text-xl text-white/90 mb-2">{getPhaseMessage(negotiationStatus.currentPhase)}</p>
+                  <p className="text-white/70">Stay on this page - we'll update you in real-time</p>
+                </div>
+              </div>
+
+              {/* Call Progress Visualization */}
+              <div className="glass rounded-2xl p-8 mb-6">
+                <h3 className="text-xl font-semibold text-white mb-6">Call Progress</h3>
+                <div className="space-y-4">
+                  {[
+                    { phase: 'initializing', label: 'Setting up call', time: '0:00-0:15' },
+                    { phase: 'dialing', label: 'Connecting to customer service', time: '0:15-0:45' },
+                    { phase: 'connected', label: 'Speaking with representative', time: '0:45-2:00' },
+                    { phase: 'negotiating', label: 'Negotiating your request', time: '2:00+' },
+                    { phase: 'completing', label: 'Finalizing details', time: 'Final' }
+                  ].map((step, index) => {
+                    const isActive = negotiationStatus.currentPhase === step.phase
+                    const isCompleted = ['initializing', 'dialing', 'connected', 'negotiating'].indexOf(step.phase) < 
+                                      ['initializing', 'dialing', 'connected', 'negotiating'].indexOf(negotiationStatus.currentPhase)
+                    
+                    return (
+                      <div key={step.phase} className="flex items-center">
+                        <div className={`w-4 h-4 rounded-full mr-4 flex-shrink-0 ${
+                          isActive ? 'bg-primary animate-pulse' : 
+                          isCompleted ? 'bg-green-500' : 'bg-white/20'
+                        }`} />
+                        <div className="flex-1 text-left">
+                          <div className={`font-medium ${isActive ? 'text-white' : isCompleted ? 'text-green-400' : 'text-white/50'}`}>
+                            {step.label}
+                          </div>
+                          <div className="text-sm text-white/40">{step.time}</div>
+                        </div>
+                        {isActive && (
+                          <div className="flex items-center text-primary">
+                            <Clock className="h-4 w-4 mr-1" />
+                            <span className="text-sm">Active</span>
+                          </div>
+                        )}
+                        {isCompleted && (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Live Status Updates */}
+              <div className="glass rounded-2xl p-6">
+                <h3 className="text-lg font-semibold text-white mb-4">Live Updates</h3>
+                <div className="space-y-2 text-left">
+                  <div className="flex items-center text-white/80">
+                    <div className="w-2 h-2 bg-primary rounded-full mr-3 animate-pulse"></div>
+                    <span>{getPhaseMessage(negotiationStatus.currentPhase)}</span>
+                  </div>
+                  
+                  {/* Show real Vapi status if available */}
+                  {(negotiationStatus as any).vapiCallStatus && (
+                    <div className="flex items-center text-blue-400">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
+                      <span>Vapi Status: {(negotiationStatus as any).vapiCallStatus}</span>
+                    </div>
+                  )}
+                  
+                  {negotiationStatus.duration > 30 && (
+                    <div className="flex items-center text-white/60">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                      <span>Successfully connected to customer service</span>
+                    </div>
+                  )}
+                  {negotiationStatus.duration > 60 && (
+                    <div className="flex items-center text-white/60">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                      <span>Representative is reviewing your request</span>
+                    </div>
+                  )}
+                  {negotiationStatus.duration > 120 && (
+                    <div className="flex items-center text-white/60">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                      <span>Negotiation in progress - seeking best outcome</span>
+                    </div>
+                  )}
+                  
+                  {/* Debug info */}
+                  <div className="mt-4 pt-4 border-t border-white/20">
+                    <p className="text-xs text-white/50">Call ID: {negotiationStatus.id}</p>
+                    <p className="text-xs text-white/50">Status: {negotiationStatus.status}</p>
+                    <p className="text-xs text-white/50">Phase: {negotiationStatus.currentPhase}</p>
+                    {(negotiationStatus as any).lastUpdate && (
+                      <p className="text-xs text-white/50">
+                        Last Update: {new Date((negotiationStatus as any).lastUpdate).toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : negotiationStatus.status === 'completed' && negotiationStatus.result ? (
+            <>
+              <h1 className="text-6xl font-bold text-white mb-8">🎉 Success!</h1>
+              <div className="glass rounded-2xl p-8 max-w-lg mx-auto mb-8">
+                <div className="flex items-center justify-center mb-6">
+                  <CheckCircle className="h-12 w-12 text-green-500 mr-3" />
+                  <span className="text-2xl font-semibold text-white">Call Completed</span>
+                </div>
+                
+                <div className="space-y-4 text-left">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white mb-2">Result:</h3>
+                    <p className="text-white/90 bg-white/10 rounded-lg p-3">{negotiationStatus.result.refund}</p>
+                  </div>
+                  
+                  <div>
+                    <h3 className="text-lg font-semibold text-white mb-2">Confirmation Code:</h3>
+                    <p className={`font-mono text-xl bg-white/10 rounded-lg p-3 text-center ${
+                      (negotiationStatus.result as any).realConfirmationCode ? 'text-green-400' : 'text-yellow-400'
+                    }`}>
+                      {negotiationStatus.result.code}
+                    </p>
+                    {(negotiationStatus.result as any).realConfirmationCode ? (
+                      <p className="text-green-400 text-sm mt-2 text-center">✅ Real confirmation code from call</p>
+                    ) : (
+                      <p className="text-yellow-400 text-sm mt-2 text-center">⚠️ Fallback code (no code found in transcript)</p>
+                    )}
+                  </div>
+                  
+                  {(negotiationStatus.result as any).realRefundAmount && (
+                    <div>
+                      <h3 className="text-lg font-semibold text-white mb-2">Refund Amount:</h3>
+                      <p className="text-green-400 font-mono text-xl bg-white/10 rounded-lg p-3 text-center">
+                        ${(negotiationStatus.result as any).realRefundAmount}
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center justify-center text-white/70 mt-4">
+                    <Clock className="h-4 w-4 mr-2" />
+                    <span>Call duration: {formatDuration(negotiationStatus.duration)}</span>
+                  </div>
+                  
+                  {/* Debug section - show raw data */}
+                  <details className="mt-6">
+                    <summary className="text-white/60 text-sm cursor-pointer hover:text-white/80">
+                      🔍 Debug: Raw Call Data
+                    </summary>
+                    <div className="mt-2 space-y-2 text-xs text-white/50">
+                      <div>
+                        <strong>Real Confirmation Code:</strong> {(negotiationStatus.result as any).realConfirmationCode || 'None found'}
+                      </div>
+                      <div>
+                        <strong>Real Refund Amount:</strong> {(negotiationStatus.result as any).realRefundAmount || 'None found'}
+                      </div>
+                      <div>
+                        <strong>Transcript Preview:</strong> 
+                        <div className="bg-black/20 rounded p-2 mt-1 max-h-20 overflow-y-auto">
+                          {(negotiationStatus.result as any).transcript?.substring(0, 200) || 'No transcript available'}...
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+              
+              <Button 
+                onClick={() => {
+                  setShowCallProgress(false)
+                  setNegotiationStatus({
+                    id: null, 
+                    status: 'idle', 
+                    result: null, 
+                    callStartTime: null, 
+                    duration: 0, 
+                    currentPhase: 'initializing',
+                    error: null
+                  })
+                  setNegotiationData({userMessage: '', orderNumber: '', screenshot: null})
+                }}
+                className="bg-primary hover:bg-primary/80 text-white px-8 py-3 rounded-xl text-lg"
               >
                 Start New Negotiation
               </Button>
             </>
           ) : (
             <>
-              <h1 className="text-8xl font-bold text-white mb-8">Call in progress...</h1>
+              <h1 className="text-6xl font-bold text-white mb-8">Preparing Call...</h1>
               <div className="flex justify-center">
                 <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary"></div>
               </div>
+              <p className="text-white/70 mt-4">Setting up your AI negotiation call</p>
             </>
           )}
         </div>
@@ -563,14 +884,18 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen bg-slate-900 relative overflow-hidden">
         <div className="fixed top-0 left-0 right-0 z-40 backdrop-blur-xl bg-blue-900/20 border-b border-white/10">
-          <div className="container mx-auto px-4 py-2 flex items-center justify-end">
+          <div className="container mx-auto px-4 py-2 flex items-center justify-end space-x-4">
+            <div className="flex items-center text-white/70 text-sm">
+              <User className="mr-2 h-4 w-4" />
+              {user.email.split('@')[0]}
+            </div>
             <Button
-              onClick={() => setShowSignIn(true)}
+              onClick={handleLogout}
               variant="ghost"
               className="text-white/70 hover:text-white hover:bg-white/10"
             >
-              <User className="mr-2 h-4 w-4" />
-              Sign In
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
             </Button>
           </div>
         </div>
@@ -674,15 +999,32 @@ export default function Dashboard() {
   return (
     <div className="bg-slate-900 relative overflow-hidden">
       <div className="fixed top-0 left-0 right-0 z-40 backdrop-blur-xl bg-blue-900/20 border-b border-white/10">
-        <div className="container mx-auto px-4 py-2 flex items-center justify-end">
-          <Button
-            onClick={() => setShowSignIn(true)}
-            variant="ghost"
-            className="text-white/70 hover:text-white hover:bg-white/10"
-          >
-            <User className="mr-2 h-4 w-4" />
-            Sign In
-          </Button>
+        <div className="container mx-auto px-4 py-2 flex items-center justify-end space-x-4">
+          {user ? (
+            <>
+              <div className="flex items-center text-white/70 text-sm">
+                <User className="mr-2 h-4 w-4" />
+                {user.email}
+              </div>
+              <Button
+                onClick={handleLogout}
+                variant="ghost"
+                className="text-white/70 hover:text-white hover:bg-white/10"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout
+              </Button>
+            </>
+          ) : (
+            <Button
+              onClick={() => router.push('/login')}
+              variant="ghost"
+              className="text-white/70 hover:text-white hover:bg-white/10"
+            >
+              <User className="mr-2 h-4 w-4" />
+              Sign In
+            </Button>
+          )}
         </div>
       </div>
 

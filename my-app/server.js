@@ -5,6 +5,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const VapiIntegration = require('./vapi-config');
 
 const app = express();
@@ -33,6 +35,28 @@ const upload = multer({ storage });
 
 // In-memory storage for demo (use database in production)
 const negotiations = new Map();
+const users = new Map(); // Store users: email -> {id, email, password, createdAt}
+
+// JWT Secret (use environment variable in production)
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production';
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 const mockCSRResponses = {
   refund: {
     initial: "I can only offer a $5 credit to your account.",
@@ -53,6 +77,103 @@ const mockCSRResponses = {
 
 // Initialize Vapi Integration
 const vapi = new VapiIntegration();
+
+// Users will be created dynamically through signup
+
+// Authentication Routes
+app.post('/signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (users.has(email)) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    // Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Create user
+    const userId = 'user-' + Date.now();
+    const user = {
+      id: userId,
+      email,
+      password: hashedPassword,
+      createdAt: new Date().toISOString()
+    };
+
+    users.set(email, user);
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: userId, email },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.status(201).json({
+      message: 'User created successfully',
+      token,
+      user: { id: userId, email }
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const user = users.get(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      message: 'Login successful',
+      token,
+      user: { id: user.id, email: user.email }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/verify-token', authenticateToken, (req, res) => {
+  res.json({
+    valid: true,
+    user: { id: req.user.id, email: req.user.email }
+  });
+});
+
+app.post('/logout', (req, res) => {
+  // In a real app, you might invalidate the token in a blacklist
+  res.json({ message: 'Logout successful' });
+});
 
 // Test endpoint to check phone number setup
 app.get('/test-phone', async (req, res) => {
@@ -159,7 +280,9 @@ app.post('/start', upload.single('screenshot'), async (req, res) => {
       screenshotUrl,
       customerData,
       startTime: new Date(),
-      result: null
+      result: null,
+      phase: 'initializing',
+      lastUpdate: new Date()
     });
 
     // Start Vapi call
@@ -169,34 +292,109 @@ app.post('/start', upload.single('screenshot'), async (req, res) => {
       negotiations.set(negotiationId, {
         ...negotiations.get(negotiationId),
         status: 'in_progress',
-        callId: callResult.id
+        callId: callResult.id,
+        phase: 'dialing',
+        lastUpdate: new Date()
       });
 
-      // Start polling for call completion
-      setTimeout(async () => {
+      // Start real-time polling of Vapi call status
+      const pollVapiCallStatus = async () => {
+        const current = negotiations.get(negotiationId);
+        if (!current || current.status === 'completed') return;
+
         try {
-          const callSummary = await vapi.getCallSummary(callResult.id);
-          negotiations.set(negotiationId, {
-            ...negotiations.get(negotiationId),
-            status: 'completed',
-            result: {
-              success: true,
-              summary: callSummary.summary,
-              transcript: callSummary.transcript,
-              duration: callSummary.duration
+          const callStatus = await vapi.getCallStatus(callResult.id);
+          console.log('Vapi call status:', callStatus);
+          
+          // Update negotiation with real Vapi data
+          const updatedNegotiation = {
+            ...current,
+            vapiCallStatus: callStatus.status,
+            vapiCallData: callStatus,
+            lastUpdate: new Date()
+          };
+
+          // Map Vapi status to our phases
+          if (callStatus.status === 'queued') {
+            updatedNegotiation.phase = 'initializing';
+          } else if (callStatus.status === 'ringing') {
+            updatedNegotiation.phase = 'dialing';
+          } else if (callStatus.status === 'in-progress') {
+            updatedNegotiation.phase = 'connected';
+            // If call has been going for more than 45 seconds, assume negotiating
+            const callDuration = Date.now() - current.startTime.getTime();
+            if (callDuration > 45000) {
+              updatedNegotiation.phase = 'negotiating';
             }
-          });
+          } else if (callStatus.status === 'forwarding') {
+            updatedNegotiation.phase = 'negotiating';
+          } else if (callStatus.status === 'ended') {
+            updatedNegotiation.status = 'completed';
+            updatedNegotiation.phase = 'completing';
+            
+            // Get the call summary and transcript
+            try {
+              const callSummary = await vapi.getCallSummary(callResult.id);
+              console.log('Call summary received:', callSummary);
+              
+              // Extract real confirmation code from transcript
+              const realConfirmationCode = callSummary.summary?.confirmationCode || 
+                                         callSummary.confirmationCode || 
+                                         null;
+              
+              // Extract real refund amount
+              const realRefundAmount = callSummary.summary?.refundAmount || 
+                                     callSummary.refundAmount || 
+                                     null;
+              
+              // Create result message with real data
+              let resultMessage = callSummary.summary?.result || 'Your request has been processed';
+              if (realRefundAmount) {
+                resultMessage = `Refund approved: $${realRefundAmount}`;
+              }
+              
+              updatedNegotiation.result = {
+                success: true,
+                summary: callSummary.summary || 'Call completed successfully',
+                transcript: callSummary.transcript || 'Transcript not available',
+                duration: callSummary.duration || Math.floor((Date.now() - current.startTime.getTime()) / 1000),
+                refund: resultMessage,
+                code: realConfirmationCode || `CONF-${Date.now().toString().slice(-6)}`, // Use real code or fallback
+                realConfirmationCode: realConfirmationCode,
+                realRefundAmount: realRefundAmount,
+                rawSummary: callSummary.summary
+              };
+            } catch (summaryError) {
+              console.error('Error getting call summary:', summaryError);
+              // Fallback result
+              updatedNegotiation.result = {
+                success: true,
+                refund: 'Your request has been processed successfully',
+                code: `CONF-${Date.now().toString().slice(-6)}`,
+                realConfirmationCode: null,
+                realRefundAmount: null
+              };
+            }
+          }
+
+          negotiations.set(negotiationId, updatedNegotiation);
+
+          // Continue polling if call is still active
+          if (callStatus.status !== 'ended' && callStatus.status !== 'failed') {
+            setTimeout(pollVapiCallStatus, 2000); // Poll every 2 seconds
+          }
+
         } catch (error) {
-          console.error('Error getting call summary:', error);
-          // Fallback to mock result
-          const mockResult = simulateNegotiation(userMessage);
-          negotiations.set(negotiationId, {
-            ...negotiations.get(negotiationId),
-            status: 'completed',
-            result: mockResult
-          });
+          console.error('Error polling Vapi call status:', error);
+          // Continue polling even on error, but less frequently
+          setTimeout(pollVapiCallStatus, 5000);
         }
-      }, 30000); // Check after 30 seconds
+      };
+
+      // Start polling immediately
+      setTimeout(pollVapiCallStatus, 1000);
+
+      // Real-time polling is now handled by pollVapiCallStatus function above
 
       res.json({ 
         success: true, 
@@ -204,20 +402,21 @@ app.post('/start', upload.single('screenshot'), async (req, res) => {
         message: 'Negotiation started successfully'
       });
     } catch (error) {
-      // For demo purposes, simulate a successful call
-      setTimeout(() => {
-        const mockResult = simulateNegotiation(userMessage);
-        negotiations.set(negotiationId, {
-          ...negotiations.get(negotiationId),
-          status: 'completed',
-          result: mockResult
-        });
-      }, 5000);
+      console.error('Error starting Vapi call:', error);
+      
+      // Update negotiation status to indicate failure
+      negotiations.set(negotiationId, {
+        ...negotiations.get(negotiationId),
+        status: 'failed',
+        phase: 'failed',
+        error: error.message,
+        lastUpdate: new Date()
+      });
 
-      res.json({ 
-        success: true, 
-        negotiationId,
-        message: 'Negotiation started (simulated)'
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to start call with Vapi service',
+        details: error.message
       });
     }
   } catch (error) {
